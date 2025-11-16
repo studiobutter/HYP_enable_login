@@ -41,7 +41,7 @@ You can customize the Port however you want but you will need to set the script 
 
 Because HoYoPlay has URI Protocols, the script also changes the Protocols to enable DevTools. So websites that interacts with the launcher will still work correctly.
 
-If you wish to set it up manually, follow the steps [here]()
+If you wish to set it up manually, follow the steps [here](./Automation.md)
 
 For Shortcuts:
 
