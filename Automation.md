@@ -15,6 +15,7 @@ Choose if you have either the global launcher or CN launcher. The Script will th
 - URI Protocols
 - Startup Settings (if Launch Launcher on Startup is enabled)
 - Desktop Shortcuts (or where you put your shortcut)
+- Start Menu Shortcuts
 
 ## Automation
 
