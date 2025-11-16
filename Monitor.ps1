@@ -26,6 +26,25 @@ $wasRunning = $false
 $runningAppPath = $null
 $sourceRegPath = $null
 
+# --- ACTIVE REGISTRY PATHS ---
+# Determine which registry entries actually exist. If none exist, exit 0.
+$AvailableRegPaths = @()
+foreach ($p in $RegPaths) {
+    if (Test-Path $p) {
+        $AvailableRegPaths += $p
+    }
+}
+
+if ($AvailableRegPaths.Count -eq 0) {
+    Clear-Host
+    Write-Host "⚠️  No HYP registry entries found (checked: $($RegPaths -join ', ')). Exiting." -ForegroundColor Yellow
+    exit 0
+}
+
+# Replace RegPaths with available ones so the rest of the script monitors only existing keys
+$RegPaths = $AvailableRegPaths
+Write-Host "🔍 Monitoring registry paths: $($RegPaths -join ', ')" -ForegroundColor Cyan
+
 # --- HELPER FUNCTIONS ---
 function Get-ExecutableFromRegistry {
     <#
@@ -79,24 +98,33 @@ function Read-RegistryExecutables {
     Returns hashtable with registry paths and their application directories.
     #>
     $results = @{}
-    
+
     foreach ($regPath in $RegPaths) {
         try {
+            $exePath = $null
+            $appDir = $null
+
             $item = Get-ItemProperty -Path $regPath -Name "(Default)" -ErrorAction SilentlyContinue
-            if ($item) {
+            if ($item -and $item."(Default)") {
                 $exePath = Get-ExecutableFromRegistry -CommandValue $item."(Default)"
                 $appDir = Get-ApplicationDirectory -ExecutablePath $exePath
-                $results[$regPath] = @{
-                    ExecutablePath = $exePath
-                    Directory      = $appDir
-                }
                 Write-Host "📋 Registry ($regPath):" -ForegroundColor Gray
                 Write-Host "   Exe: $exePath" -ForegroundColor Gray
                 Write-Host "   Dir: $appDir" -ForegroundColor Gray
             }
+            else {
+                Write-Host "📋 Registry ($regPath): value missing or empty" -ForegroundColor Gray
+            }
+
+            # Always populate the results table to avoid null lookup errors later
+            $results[$regPath] = @{
+                ExecutablePath = $exePath
+                Directory      = $appDir
+            }
         }
         catch {
             Write-Host "⚠️  Error reading $regPath : $_" -ForegroundColor Yellow
+            $results[$regPath] = $null
         }
     }
     
@@ -194,7 +222,23 @@ function Start-HoYoPassSetup {
     $buffer = New-Object Byte[] 4096
     $result = $client.ReceiveAsync([ArraySegment[byte]]::new($buffer), [Threading.CancellationToken]::None).Result
     $response = [System.Text.Encoding]::UTF8.GetString($buffer, 0, $result.Count)
-    Write-Host "✅ Response: $response" -ForegroundColor Green
+    
+    try {
+        $respObj = $response | ConvertFrom-Json -ErrorAction Stop
+        if ($respObj.result) {
+            Write-Host "✅ Navigation OK — frameId=$($respObj.result.frameId) loaderId=$($respObj.result.loaderId)" -ForegroundColor Green
+        }
+        elseif ($respObj.error) {
+            Write-Host "❌ DevTools error: $($respObj.error.message)" -ForegroundColor Red
+        }
+        else {
+            Write-Host "ℹ️ DevTools response: $response" -ForegroundColor Gray
+        }
+    }
+    catch {
+        # Not valid JSON — print raw response
+        Write-Host "ℹ️ Raw response: $response" -ForegroundColor Gray
+    }
 
     # 5️⃣ Disconnect
     $client.Dispose()
@@ -237,12 +281,12 @@ function Restore-RegistryOnAppClose {
             }
             
             # Extract executable and arguments
-            if ($currentValue -match '^"([^"]+)"') {
-                $exePath = $matches[1]
-                $newValue = "`"$exePath`" `"--url=%1`" `"--remote-debugging-port=9222`""
-            } else {
-                # Fallback: add with quotes
-                $newValue = "$currentValue `"--url=%1`" `"--remote-debugging-port=9222`""
+                    if ($currentValue -match '^"([^"]+)"') {
+                        $exePath = $matches[1]
+                        $newValue = ('"{0}" "{1}" "{2}"' -f $exePath, '--url=%1', '--remote-debugging-port=9222')
+                    } else {
+                        # Fallback: add with quotes, preserving existing args
+                        $newValue = ('"{0}" "{1}" "{2}"' -f $currentValue, '--url=%1', '--remote-debugging-port=9222')
             }
             
             Write-Host "   📝 Updating..." -ForegroundColor Cyan
@@ -297,8 +341,9 @@ while ($true) {
                 # Identify which registry entry this corresponds to
                 foreach ($regPath in $RegPaths) {
                     $regEntry = $registryExecutables[$regPath]
+                    if ($null -eq $regEntry) { continue }
                     $regDir = $regEntry.Directory
-                    
+
                     if ($regDir -and ($runningAppDir -eq $regDir)) {
                         $sourceRegPath = $regPath
                         Write-Host "   Registry source: $regPath" -ForegroundColor Cyan
