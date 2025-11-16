@@ -10,7 +10,7 @@
 # --- Check for Administrator privileges ---
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Host "⚠️  Restarting script as Administrator..."
-    Start-Process powershell -Verb runAs -ArgumentList "-File `"$PSCommandPath`""
+    Start-Process pwsh -Verb runAs -ArgumentList "-File `"$PSCommandPath`""
     exit
 }
 
